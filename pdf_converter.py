@@ -5,9 +5,21 @@ from tkinter import ttk, filedialog, messagebox
 from pdf2image import convert_from_path
 from PyPDF2 import PdfReader, PdfWriter
 import os
+import shutil
 import tempfile
-from PIL import Image
 import threading
+
+
+def find_poppler_path():
+    """Locate Poppler binaries; GUI apps often lack Homebrew in PATH."""
+    if shutil.which('pdftoppm'):
+        return None
+
+    for path in ('/opt/homebrew/bin', '/usr/local/bin'):
+        if os.path.isfile(os.path.join(path, 'pdftoppm')):
+            return path
+
+    return None
 
 class PDFConverter:
     def __init__(self):
@@ -21,7 +33,8 @@ class PDFConverter:
         self.output_path = tk.StringVar()
         self.conversion_ratio = tk.DoubleVar(value=0.68)
         self.dpi = tk.IntVar(value=300)
-        
+        self.poppler_path = find_poppler_path()
+
         self.setup_ui()
         
     def setup_ui(self):
@@ -41,9 +54,9 @@ class PDFConverter:
         output_frame = ttk.LabelFrame(main_frame, text="Output Location", padding="10")
         output_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(output_frame, text="Save to:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(output_frame, text="Output file:").pack(side=tk.LEFT, padx=5)
         ttk.Entry(output_frame, textvariable=self.output_path, width=50).pack(side=tk.LEFT, padx=5)
-        ttk.Button(output_frame, text="Browse", command=self.browse_output).pack(side=tk.LEFT, padx=5)
+        ttk.Button(output_frame, text="Rename", command=self.browse_output).pack(side=tk.LEFT, padx=5)
         
         # Settings
         settings_frame = ttk.LabelFrame(main_frame, text="Conversion Settings", padding="10")
@@ -73,32 +86,51 @@ class PDFConverter:
         # Convert button
         ttk.Button(main_frame, text="Convert", command=self.start_conversion).pack(pady=10)
         
+    def _resolve_output_path(self, pdf_path, output_path=None):
+        """Always place the output file in the same folder as the input PDF."""
+        filename = os.path.basename(output_path) if output_path else ''
+        if not filename:
+            filename = os.path.splitext(os.path.basename(pdf_path))[0] + '.docx'
+        elif not filename.lower().endswith('.docx'):
+            filename += '.docx'
+        return os.path.join(os.path.dirname(pdf_path), filename)
+
     def browse_pdf(self):
         filename = filedialog.askopenfilename(
             filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
         )
         if filename:
             self.pdf_path.set(filename)
-            # Set default output path
-            default_output = os.path.splitext(filename)[0] + '.docx'
-            self.output_path.set(default_output)
-            
+            self.output_path.set(self._resolve_output_path(filename))
+
     def browse_output(self):
+        pdf_path = self.pdf_path.get()
+        if not pdf_path:
+            messagebox.showerror("Error", "Please select a PDF file first")
+            return
+
+        initial_name = os.path.basename(self.output_path.get()) or (
+            os.path.splitext(os.path.basename(pdf_path))[0] + '.docx'
+        )
         filename = filedialog.asksaveasfilename(
+            initialdir=os.path.dirname(pdf_path),
+            initialfile=initial_name,
             defaultextension=".docx",
             filetypes=[("Word files", "*.docx"), ("All files", "*.*")]
         )
         if filename:
-            self.output_path.set(filename)
+            self.output_path.set(self._resolve_output_path(pdf_path, filename))
             
     def convert_pdf_to_word(self):
         try:
             pdf_path = self.pdf_path.get()
-            output_path = self.output_path.get()
-            
-            if not pdf_path or not output_path:
-                messagebox.showerror("Error", "Please select both input and output files")
+
+            if not pdf_path:
+                messagebox.showerror("Error", "Please select a PDF file")
                 return
+
+            output_path = self._resolve_output_path(pdf_path, self.output_path.get())
+            self.output_path.set(output_path)
                 
             # Read PDF
             pdf_reader = PdfReader(pdf_path)
@@ -125,12 +157,10 @@ class PDFConverter:
                     with open(temp_pdf, 'wb') as f:
                         pdf_writer.write(f)
                     
-                    # Convert to image
-                    images = convert_from_path(
-                        temp_pdf,
-                        dpi=self.dpi.get(),
-                        # poppler_path='./poppler/bin'
-                    )
+                    convert_kwargs = {'dpi': self.dpi.get()}
+                    if self.poppler_path:
+                        convert_kwargs['poppler_path'] = self.poppler_path
+                    images = convert_from_path(temp_pdf, **convert_kwargs)
                     
                     # Add image to Word document
                     for img in images:
