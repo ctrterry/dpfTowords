@@ -86,11 +86,15 @@ class PDFConverter:
         # Convert button
         ttk.Button(main_frame, text="Convert", command=self.start_conversion).pack(pady=10)
         
+    def _default_output_filename(self, pdf_path):
+        stem = os.path.splitext(os.path.basename(pdf_path))[0]
+        return f"{stem}_done.docx"
+
     def _resolve_output_path(self, pdf_path, output_path=None):
         """Always place the output file in the same folder as the input PDF."""
         filename = os.path.basename(output_path) if output_path else ''
         if not filename:
-            filename = os.path.splitext(os.path.basename(pdf_path))[0] + '.docx'
+            filename = self._default_output_filename(pdf_path)
         elif not filename.lower().endswith('.docx'):
             filename += '.docx'
         return os.path.join(os.path.dirname(pdf_path), filename)
@@ -109,9 +113,7 @@ class PDFConverter:
             messagebox.showerror("Error", "Please select a PDF file first")
             return
 
-        initial_name = os.path.basename(self.output_path.get()) or (
-            os.path.splitext(os.path.basename(pdf_path))[0] + '.docx'
-        )
+        initial_name = os.path.basename(self.output_path.get()) or self._default_output_filename(pdf_path)
         filename = filedialog.asksaveasfilename(
             initialdir=os.path.dirname(pdf_path),
             initialfile=initial_name,
